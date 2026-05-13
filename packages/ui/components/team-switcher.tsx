@@ -33,9 +33,8 @@ import {
 export function TeamSwitcher() {
   const { query: userQuery } = useUser();
   const { testMode } = useAppMode();
-  const {
-    metadata: { ALLOW_MULTI_ACCOUNT, MULTI_ORGANIZATIONS },
-  } = useAPIMetadata();
+  const { metadata } = useAPIMetadata();
+  const { ALLOW_MULTI_ACCOUNT, MULTI_ORGANIZATIONS } = metadata || {};
 
   // Only call organization-related hooks when multi-organizations is enabled
   const searchParams = useSearchParams();
@@ -135,11 +134,11 @@ export function TeamSwitcher() {
                     src={p`/icon.svg`}
                     width={16}
                     height={16}
-                    alt="Karrio"
+                    alt={metadata?.APP_NAME || "Karrio"}
                   />
                 </div>
                 <div className="grid flex-1 text-left text-sm leading-tight">
-                  <span className="truncate font-semibold">Karrio</span>
+                  <span className="truncate font-semibold">{metadata?.APP_NAME || "Karrio"}</span>
                 </div>
                 <ChevronsUpDown className="ml-auto size-4 shrink-0 opacity-50" />
               </SidebarMenuButton>
