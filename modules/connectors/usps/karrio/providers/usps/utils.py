@@ -46,6 +46,7 @@ class Settings(core.Settings):
 class ConnectionConfig(lib.Enum):
     permit_ZIP = lib.OptionEnum("permit_ZIP")
     permit_number = lib.OptionEnum("permit_number")
+    price_type = lib.OptionEnum("price_type")
     shipping_options = lib.OptionEnum("shipping_options", list)
     shipping_services = lib.OptionEnum("shipping_services", list)
 

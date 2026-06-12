@@ -157,3 +157,4 @@ htmlcov/
 # Temporary files
 *.tmp
 *.backup
+.gstack/

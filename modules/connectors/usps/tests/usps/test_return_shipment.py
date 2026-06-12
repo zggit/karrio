@@ -154,7 +154,7 @@ ReturnShipmentResponseJSON = """{
         "dimensionalWeight": 0,
         "mailClass": "PRIORITY_MAIL",
         "processingCategory": "NON_MACHINABLE",
-        "rateIndicator": "DR",
+        "rateIndicator": "SP",
         "destinationEntryFacilityType": "NONE",
         "destinationEntryFacilityAddress": {},
         "SKU": "DUXR0XXXXC06130",
