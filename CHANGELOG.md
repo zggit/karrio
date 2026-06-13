@@ -1,3 +1,49 @@
+# Karrio 2026.1.31
+
+> Hotfix release. Tracking lookups returned a 500 with
+> `TrackingEvent.__init__() missing 1 required positional argument: 'description'`
+> whenever any single event in a carrier response had a null/missing
+> `description` (reproduced against SmartKargo `MDL` events). The unified SDK
+> model required `description` as a positional argument and the DRF serializer
+> didn't allow nulls — both now align with the rest of the optional event
+> fields, so a null description from any carrier survives the SDK → server →
+> API JSON round-trip.
+
+## Changes
+
+### Fix
+
+- fix(sdk,core): make `TrackingEvent.description` optional end-to-end. Defaults
+  to `None` on the unified `models.TrackingEvent`, and the DRF
+  `TrackingEvent.description` field now sets `allow_blank=True, allow_null=True`
+  to match siblings (`time`, `code`, `status`). Django storage
+  (`Tracking.events` is a `JSONField`) and GraphQL `TrackingEventType`
+  (`Optional[str]`) were already permissive.
+
+---
+
+# Karrio 2026.1.30
+
+> Hotfix release. SmartKargo tracking lookups returned a 404
+> `SHIPPING_SDK_INTERNAL_ERROR — unconverted data remains: .6571145` whenever
+> the upstream Azure function included a .NET ticks-precision timestamp
+> (7 fractional digits, e.g. `2026-04-17T23:43:17.6571145`) in any event of
+> the response. Python's `strptime %f` caps at 6 digits — and `fromisoformat`
+> only accepts 3 or 6 — so a single offending event aborted the whole parse.
+
+## Changes
+
+### Fix
+
+- fix(smartkargo): tolerate .NET ticks-precision dates when parsing tracking
+  events. Event/ETA dates are truncated to microsecond precision (6 digits)
+  and parsed via a `try_formats` list that accepts both the no-fractional and
+  with-fractional ISO variants, so 7-digit ticks like
+  `2026-04-17T23:43:17.6571145` no longer abort the response. Adds a regression
+  test covering the production payload that triggered the failure.
+
+---
+
 # Karrio 2026.1.29
 
 > Hotfix release. Any deployment that hit the `DuplicateColumn: column
