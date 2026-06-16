@@ -36,6 +36,13 @@ class TestUSPSTracking(unittest.TestCase):
             logger.debug(lib.to_dict(parsed_response))
             self.assertListEqual(lib.to_dict(parsed_response), ParsedTrackingResponse)
 
+    def test_parse_pre_shipment_pending_response(self):
+        with patch("karrio.mappers.usps.proxy.lib.request") as mock:
+            mock.return_value = PreShipmentResponse
+            parsed_response = karrio.Tracking.fetch(self.TrackingRequest).from_(gateway).parse()
+            logger.debug(lib.to_dict(parsed_response))
+            self.assertListEqual(lib.to_dict(parsed_response), ParsedPreShipmentResponse)
+
     def test_parse_error_response(self):
         with patch("karrio.mappers.usps.proxy.lib.request") as mock:
             mock.return_value = ErrorResponse
@@ -161,6 +168,7 @@ ParsedTrackingResponse = [
                     "date": "2024-11-15",
                     "description": "Shipping Label Created, USPS Awaiting Item",
                     "location": "SPRINGFIELD GARDENS, 11413, NY",
+                    "status": "pending",
                     "time": "11:32 AM",
                     "timestamp": "2024-11-15T11:32:00.000Z",
                 },
@@ -451,3 +459,63 @@ AuthErrorResponse = """{
     "error_uri": "https://datatracker.ietf.org/doc/html/rfc6749#page-45"
 }
 """
+
+PreShipmentResponse = """{
+  "trackingNumber": "9400100000000000000000",
+  "mailClass": "USPS Ground Advantage<SUP>&#153;</SUP>",
+  "originCity": "SPRINGFIELD GARDENS",
+  "originState": "NY",
+  "originZIP": "11413",
+  "destinationZIP": "34442",
+  "status": "Pre-Shipment, USPS Awaiting Item",
+  "statusCategory": "Pre-Shipment",
+  "statusSummary": "A shipping label has been prepared. USPS is awaiting the item.",
+  "trackingEvents": [
+    {
+      "eventType": "Shipping Label Created, USPS Awaiting Item",
+      "eventTimestamp": "2024-11-15T11:32:00",
+      "GMTTimestamp": "2024-11-15T16:32:33Z",
+      "GMTOffset": "-05:00",
+      "eventCountry": null,
+      "eventCity": "SPRINGFIELD GARDENS",
+      "eventState": "NY",
+      "eventZIP": "11413",
+      "firm": null,
+      "name": null,
+      "authorizedAgent": "false",
+      "eventCode": "GX",
+      "additionalProp": null
+    }
+  ]
+}
+"""
+
+ParsedPreShipmentResponse = [
+    [
+        {
+            "carrier_id": "usps",
+            "carrier_name": "usps",
+            "delivered": False,
+            "events": [
+                {
+                    "code": "GX",
+                    "date": "2024-11-15",
+                    "description": "Shipping Label Created, USPS Awaiting Item",
+                    "location": "SPRINGFIELD GARDENS, 11413, NY",
+                    "status": "pending",
+                    "time": "11:32 AM",
+                    "timestamp": "2024-11-15T11:32:00.000Z",
+                }
+            ],
+            "info": {
+                "carrier_tracking_link": "https://tools.usps.com/go/TrackConfirmAction?tLabels=9400100000000000000000",
+                "shipment_destination_postal_code": "34442",
+                "shipment_origin_postal_code": "11413",
+                "shipment_service": "USPS Ground Advantage<SUP>&#153;</SUP>",
+            },
+            "status": "pending",
+            "tracking_number": "9400100000000000000000",
+        }
+    ],
+    [],
+]

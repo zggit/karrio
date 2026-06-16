@@ -297,6 +297,7 @@ def shipping_options_initializer(
 
 
 class TrackingStatus(lib.Enum):
+    pending = ["pre-shipment", "shipping label created", "usps awaiting item"]
     on_hold = ["on hold"]
     delivered = ["delivered"]
     in_transit = ["in transit"]
