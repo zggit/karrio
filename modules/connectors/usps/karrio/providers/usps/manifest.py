@@ -77,7 +77,7 @@ def manifest_request(
             streetAddress=address.address_line1,
             secondaryAddress=address.address_line2,
             city=address.city,
-            state=address.state,
+            state=address.state_code,
             ZIPCode=lib.to_zip5(address.postal_code) or "",
             ZIPPlus4=lib.to_zip4(address.postal_code) or "",
             urbanization=None,
