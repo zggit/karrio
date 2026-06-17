@@ -7,7 +7,6 @@ import karrio.lib as lib
 import karrio.providers.usps.error as error
 import karrio.providers.usps.utils as provider_utils
 import karrio.schemas.usps.scan_form_request as usps
-import karrio.schemas.usps.scan_form_response as manifest
 
 
 def parse_manifest_response(
@@ -28,18 +27,18 @@ def _extract_details(
     settings: provider_utils.Settings,
     ctx: dict = None,
 ) -> models.ManifestDetails:
-    container = data.get("Scan Form Response") or data
+    # USPS multipart success: JSON part "SCANFormMetaData" (note the capital D) holds the
+    # metadata (manifestNumber, trackingNumbers) as flat fields; PDF part is "SCANFormImage".
+    metadata = data.get("SCANFormMetaData") or data.get("SCANFormMetadata") or {}
     pdf = data.get("SCANFormImage") or data.get("label")
-    details = lib.to_object(manifest.ScanFormResponseType, container)
 
     return models.ManifestDetails(
         carrier_id=settings.carrier_id,
         carrier_name=settings.carrier_name,
         doc=models.ManifestDocument(manifest=pdf),
         meta=dict(
-            manifestNumber=lib.failsafe(lambda: details.SCANFormMetadata.manifestNumber),
-            trackingNumbers=lib.failsafe(lambda: details.SCANFormMetadata.trackingNumbers)
-            or (ctx or {}).get("shipment_identifiers"),
+            manifestNumber=metadata.get("manifestNumber"),
+            trackingNumbers=metadata.get("trackingNumbers") or (ctx or {}).get("shipment_identifiers"),
         ),
     )
 

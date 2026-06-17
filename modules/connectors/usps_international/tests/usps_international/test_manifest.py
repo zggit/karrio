@@ -139,7 +139,7 @@ ManifestResponse = """{
 MultipartManifestResponse = (
     "--uspsboundary123\r\n"
     "Content-Type: application/json\r\n"
-    'Content-Disposition: form-data; name="SCANFormMetadata"\r\n'
+    'Content-Disposition: form-data; name="SCANFormMetaData"\r\n'
     "\r\n"
     '{"manifestNumber": "9234567890", "trackingNumbers": ["794947717776"]}\r\n'
     "--uspsboundary123\r\n"
