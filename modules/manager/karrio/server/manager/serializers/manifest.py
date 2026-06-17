@@ -3,7 +3,6 @@ import typing
 import karrio.server.core.gateway as gateway
 import karrio.server.core.serializers as core
 import karrio.server.manager.models as models
-import karrio.server.manager.serializers as manager
 import karrio.server.serializers as serializers
 from karrio.server.core.utils import create_carrier_snapshot
 
@@ -59,12 +58,10 @@ class ManifestSerializer(core.ManifestData):
             for key, value in core.Manifest(response.manifest).data.items()
             if key in models.Manifest.DIRECT_PROPS
         }
-        address = serializers.save_one_to_one_data(
-            "address",
-            manager.AddressSerializer,
-            payload=validated_data,
-            context=context,
-        )
+        # Manifest.address is an embedded JSON dict (like Pickup); store the validated
+        # dict directly. save_one_to_one_data returns an Address model instance, which is
+        # not JSON-serializable into the JSONField (TypeError on Manifest.objects.create).
+        address = validated_data.get("address")
 
         # Merge request_id into meta for request correlation
         from karrio.server.core.middleware import get_request_id
