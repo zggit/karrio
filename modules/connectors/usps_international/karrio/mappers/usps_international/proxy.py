@@ -279,9 +279,10 @@ class Proxy(proxy.Proxy):
                 "Content-Type": "application/json",
                 "Authorization": f"Bearer {access_token}",
             },
+            on_error=provider_utils.parse_error_response,
         )
 
-        return lib.Deserializable(response, lib.to_dict)
+        return lib.Deserializable(response, provider_utils.parse_response, request.ctx)
 
     def create_return_shipment(self, request: lib.Serializable) -> lib.Deserializable:
         return self.create_shipment(request)

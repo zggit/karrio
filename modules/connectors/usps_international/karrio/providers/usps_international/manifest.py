@@ -17,7 +17,8 @@ def parse_manifest_response(
     response = _response.deserialize()
 
     messages = error.parse_error_response(response, settings)
-    details = lib.identity(_extract_details(response, settings) if response.get("SCANFormImage") is not None else None)
+    has_doc = (response.get("SCANFormImage") or response.get("label")) is not None
+    details = _extract_details(response, settings, _response.ctx) if (has_doc and not any(messages)) else None
 
     return details, messages
 
@@ -25,17 +26,20 @@ def parse_manifest_response(
 def _extract_details(
     data: dict,
     settings: provider_utils.Settings,
+    ctx: dict = None,
 ) -> models.ManifestDetails:
-    details = lib.to_object(manifest.ScanFormResponseType, data)
-    image = data.get("SCANFormImage")
+    container = data.get("Scan Form Response") or data
+    pdf = data.get("SCANFormImage") or data.get("label")
+    details = lib.to_object(manifest.ScanFormResponseType, container)
 
     return models.ManifestDetails(
         carrier_id=settings.carrier_id,
-        carrier_name=settings.carrier_id,
-        doc=models.ManifestDocument(manifest=image),
+        carrier_name=settings.carrier_name,
+        doc=models.ManifestDocument(manifest=pdf),
         meta=dict(
-            manifestNumber=details.SCANFormMetadata.manifestNumber,
-            trackingNumbers=details.SCANFormMetadata.trackingNumbers,
+            manifestNumber=lib.failsafe(lambda: details.SCANFormMetadata.manifestNumber),
+            trackingNumbers=lib.failsafe(lambda: details.SCANFormMetadata.trackingNumbers)
+            or (ctx or {}).get("shipment_identifiers"),
         ),
     )
 
@@ -77,7 +81,7 @@ def manifest_request(
             streetAddress=address.address_line1,
             secondaryAddress=address.address_line2,
             city=address.city,
-            state=address.state,
+            state=address.state_code,
             ZIPCode=lib.to_zip5(address.postal_code) or "",
             ZIPPlus4=lib.to_zip4(address.postal_code) or "",
             urbanization=None,
@@ -87,4 +91,4 @@ def manifest_request(
         ),
     )
 
-    return lib.Serializable(request, lib.to_dict)
+    return lib.Serializable(request, lib.to_dict, dict(shipment_identifiers=payload.shipment_identifiers))
