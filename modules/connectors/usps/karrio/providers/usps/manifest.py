@@ -9,6 +9,10 @@ import karrio.providers.usps.utils as provider_utils
 import karrio.schemas.usps.scan_form_request as usps
 
 
+def _has_valid_doc(response: dict) -> bool:
+    return (response.get("SCANFormImage") or response.get("label")) is not None
+
+
 def parse_manifest_response(
     _response: lib.Deserializable[dict],
     settings: provider_utils.Settings,
@@ -16,8 +20,21 @@ def parse_manifest_response(
     response = _response.deserialize()
 
     messages = error.parse_error_response(response, settings)
-    has_doc = (response.get("SCANFormImage") or response.get("label")) is not None
+    has_doc = _has_valid_doc(response)
     details = _extract_details(response, settings, _response.ctx) if (has_doc and not any(messages)) else None
+
+    # 2xx multipart that yields no doc part and no carrier error must not look
+    # like a success: emit an explicit error so the operator is informed and the
+    # server blocks creating a NULL-document manifest row.
+    if details is None and not any(messages):
+        messages = [
+            models.Message(
+                carrier_id=settings.carrier_id,
+                carrier_name=settings.carrier_name,
+                code="manifest_parse_error",
+                message="Unable to parse USPS scan-form manifest response.",
+            )
+        ]
 
     return details, messages
 

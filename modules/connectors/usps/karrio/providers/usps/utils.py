@@ -111,7 +111,7 @@ def parse_response(response) -> dict:
     normalized_response = normalize_multipart_response(response)
 
     # Extract boundary dynamically
-    boundary_match = re.search(r"--[a-zA-Z0-9\-]+", normalized_response)
+    boundary_match = re.search(r"--[a-zA-Z0-9\+/=_-]+", normalized_response)
     if not boundary_match:
         return dict(
             error=dict(
