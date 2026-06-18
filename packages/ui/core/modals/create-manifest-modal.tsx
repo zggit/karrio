@@ -1,19 +1,22 @@
 import { AddressDescription } from "../components/address-description";
 import { useManifestMutation } from "@karrio/hooks/manifests";
 import { InputField } from "../components/input-field";
-import { ManifestData } from "@karrio/types/rest/api";
+import { Manifest, ManifestData } from "@karrio/types/rest/api";
 import { useNotifier } from "../components/notifier";
 import { AddressForm } from "../forms/address-form";
 import { ModalFormProps, useModal } from "./modal";
 import { NotificationType } from "@karrio/types";
 import { useLoader } from "../components/loader";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@karrio/ui/components/ui/collapsible";
+import { useDocumentPrinter } from "@karrio/hooks/resource-token";
+import { useRouter } from "next/navigation";
 import { isEqual } from "@karrio/lib";
 import React from "react";
 
 type CreateManifestModalProps = {
   header?: string;
   manifest: ManifestData;
+  connectionOptions?: { carrier_id: string; label: string }[];
 };
 
 function reducer(
@@ -42,11 +45,14 @@ export const CreateManifestModal = ({
   const ManifestFormComponent = (
     props: CreateManifestModalProps,
   ): JSX.Element => {
-    const { manifest: defaultValue, header } = props;
+    const { manifest: defaultValue, header, connectionOptions } = props;
     const loader = useLoader();
     const { close } = useModal();
     const notifier = useNotifier();
     const mutation = useManifestMutation();
+    const documentPrinter = useDocumentPrinter();
+    const router = useRouter();
+    const [created, setCreated] = React.useState<Manifest | null>(null);
     const [key, setKey] = React.useState<string>(`manifest-${Date.now()}`);
     const [manifest, dispatch] = React.useReducer(
       reducer,
@@ -67,11 +73,25 @@ export const CreateManifestModal = ({
     };
     const handleSubmit = async (e: React.MouseEvent) => {
       e.preventDefault();
-      const { ...payload } = manifest;
+      const { carrier_id, ...rest } = manifest;
+      // Omit carrier_id entirely when none/empty is selected; the server
+      // resolves the connection by carrier_name when it is absent. Never
+      // send an empty/false value.
+      const payload: ManifestData = carrier_id
+        ? { ...rest, carrier_id }
+        : rest;
       try {
         loader.setLoading(true);
-        await mutation.createManifest.mutateAsync(payload);
-        setTimeout(() => close(), 1000);
+        const result = await mutation.createManifest.mutateAsync(payload);
+        setCreated(result);
+        notifier.notify({
+          type: NotificationType.success,
+          message: "Manifest created successfully!",
+        });
+        setTimeout(() => {
+          close();
+          router.push("/manifests");
+        }, 4000);
       } catch (message: any) {
         notifier.notify({ type: NotificationType.error, message });
       }
@@ -112,6 +132,28 @@ export const CreateManifestModal = ({
                 </div>
               </div>
             </div>
+
+            {/* Carrier connection selector (multi-account orgs only) */}
+            {(connectionOptions || []).length > 1 && (
+              <div className="field mb-2">
+                <label className="label is-size-7">Carrier connection</label>
+                <div className="control">
+                  <div className="select is-small is-fullwidth">
+                    <select
+                      name="carrier_id"
+                      value={manifest.carrier_id || ""}
+                      onChange={handleChange}
+                    >
+                      {(connectionOptions || []).map((opt) => (
+                        <option key={opt.carrier_id} value={opt.carrier_id}>
+                          {opt.label}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+              </div>
+            )}
 
             {/* Address section */}
             <Collapsible className="card px-0 my-3">
@@ -154,6 +196,26 @@ export const CreateManifestModal = ({
               wrapperClass="column px-0 py-2"
               fieldClass="mb-0 p-0"
             />
+
+            {created?.id && (
+              <div className="notification is-success is-light p-3 my-3">
+                <p className="has-text-weight-semibold mb-2">
+                  SCAN form created.
+                </p>
+                <a
+                  className={
+                    "button is-small is-success is-light" +
+                    (documentPrinter.isLoading ? " is-loading" : "")
+                  }
+                  onClick={(ev) => {
+                    ev.preventDefault();
+                    if (created?.id) documentPrinter.openManifest(created.id);
+                  }}
+                >
+                  <span>Print SCAN form</span>
+                </a>
+              </div>
+            )}
 
             <div className="p-3 my-5"></div>
 

@@ -146,6 +146,7 @@ export default function Page() {
         shipment_ids: selection,
         reference: shipment?.reference as string,
         carrier_name: shipment?.carrier_name as string,
+        carrier_id: shipment?.carrier_id as string,
       };
     };
 
@@ -214,6 +215,16 @@ export default function Page() {
                         <div className="buttons has-addons">
                           <CreateManifestModal
                             manifest={computeManifestData(selection, shipments)}
+                            connectionOptions={(user_connections || [])
+                              .filter(
+                                (c) =>
+                                  c.carrier_name === "usps" ||
+                                  c.carrier_name === "usps_international",
+                              )
+                              .map((c) => ({
+                                carrier_id: c.carrier_id as string,
+                                label: `${c.carrier_id} (${c.carrier_name})`,
+                              }))}
                             trigger={
                               <button
                                 type="button"
