@@ -1499,12 +1499,15 @@ class ManifestType:
     metadata: utils.JSON
     meta: utils.JSON
     options: utils.JSON
-    address: AddressType
     shipment_identifiers: typing.List[str]
     manifest_url: typing.Optional[str]
     reference: typing.Optional[str]
     created_at: datetime.datetime
     updated_at: datetime.datetime
+
+    @strawberry.field
+    def address(self: manager.Manifest) -> typing.Optional[AddressType]:
+        return AddressType.parse(self.address)
 
     @strawberry.field
     def request_id(self: manager.Manifest) -> typing.Optional[str]:
