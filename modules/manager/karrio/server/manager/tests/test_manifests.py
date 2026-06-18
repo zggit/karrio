@@ -246,6 +246,70 @@ class TestManifestPartialDrop(TestManifestFixture):
         self.assertIn(self.shipment.id, json.dumps(json.loads(response.content)))
 
 
+class TestManifestValidation(TestManifestFixture):
+    """B5 — pre-flight validation rejects bad manifest requests before the DB
+    query / gateway round-trip."""
+
+    def test_create_manifest_over_cap_400(self):
+        # More than the per-carrier SCAN-form cap (1000) must be rejected with a
+        # 400 naming the cap, BEFORE any DB query or OAuth/gateway round-trip.
+        manifest_url = reverse("karrio.server.manager:manifest-list")
+        manifest_data = {
+            "carrier_name": "usps",
+            "shipment_ids": [f"shp_{i:08d}" for i in range(1001)],
+            "address": self.usps_address(),
+        }
+        with patch("karrio.server.core.gateway.utils.identity") as mock:
+            response = self.client.post(manifest_url, manifest_data)
+            mock.assert_not_called()
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        body = json.dumps(json.loads(response.content))
+        # The cap (1000) must be named, and the rejection must be the pre-flight
+        # cap message — NOT the post-DB-query partial-drop "could not be
+        # manifested" text (which would prove the cap fired too late, after the
+        # round-trip the cap exists to avoid).
+        self.assertIn("maximum is 1000", body)
+        self.assertNotIn("could not be manifested", body)
+
+    def test_create_manifest_missing_state_400(self):
+        # USPS manifests need a complete US origin address; a missing state_code
+        # must 400 naming the field BEFORE any gateway round-trip (else it
+        # degrades to a late USPS 424).
+        manifest_url = reverse("karrio.server.manager:manifest-list")
+        address = self.usps_address()
+        address.pop("state_code")
+        manifest_data = {
+            "carrier_name": "usps",
+            "shipment_ids": [self.shipment.id],
+            "address": address,
+        }
+        with patch("karrio.server.core.gateway.utils.identity") as mock:
+            response = self.client.post(manifest_url, manifest_data)
+            mock.assert_not_called()
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("state_code", json.dumps(json.loads(response.content)))
+
+    def test_create_manifest_missing_zip_400(self):
+        # A non-numeric / non-5-digit postal_code must 400 naming the field,
+        # before any gateway round-trip.
+        manifest_url = reverse("karrio.server.manager:manifest-list")
+        address = self.usps_address()
+        address["postal_code"] = "ABC"
+        manifest_data = {
+            "carrier_name": "usps",
+            "shipment_ids": [self.shipment.id],
+            "address": address,
+        }
+        with patch("karrio.server.core.gateway.utils.identity") as mock:
+            response = self.client.post(manifest_url, manifest_data)
+            mock.assert_not_called()
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("postal_code", json.dumps(json.loads(response.content)))
+
+
 class TestManifestCarrierSelector(TestManifestFixture):
     """B3 — optional carrier_id selects a specific connection on multi-account."""
 
@@ -318,6 +382,34 @@ class TestManifestCarrierSelector(TestManifestFixture):
             models.Manifest.objects.get(pk=manifest["id"]).carrier.get("carrier_code"),
             "usps",
         )
+
+    def test_no_carrier_id_fallback_ordering_is_model_enforced(self):
+        # B4 — determinism of the no-carrier_id fallback is NOT supplied by an
+        # explicit .order_by() in the gateway; it is enforced by the connection
+        # model's Meta.ordering. The spec's premise ("Connections.list has no
+        # .order_by() -> arbitrary account") was wrong: ordering was never
+        # arbitrary. An explicit gateway .order_by("-created_at") would be
+        # redundant AND subtly regressive (it strips the leading test_mode key,
+        # so the fallback would stop preferring live over test connections).
+        #
+        # This test guards the REAL invariant — that the model ordering remains
+        # deterministic and prefers live-then-newest. It fails the moment that
+        # Meta.ordering is dropped or reordered, which is the only thing that
+        # makes the fallback stable across DB backends.
+        self.assertEqual(
+            list(providers.CarrierConnection._meta.ordering),
+            ["test_mode", "-created_at"],
+        )
+
+    def test_create_manifest_without_carrier_id_is_deterministic(self):
+        # B4 (behavioral) — two USPS connections exist (both test_mode=True, so
+        # the test_mode key is a tie and -created_at decides). usps_secondary is
+        # created in setUpTestData AFTER usps, so it is the newest and must be the
+        # stable fallback pick. This documents the end-to-end consequence of the
+        # Meta.ordering invariant above; it does not depend on any gateway change.
+        manifest = self.create_manifest()
+        snapshot = models.Manifest.objects.get(pk=manifest["id"]).carrier
+        self.assertEqual(snapshot.get("carrier_id"), "usps_secondary")
 
 
 class TestManifestDownloadGuards(TestManifestFixture):
