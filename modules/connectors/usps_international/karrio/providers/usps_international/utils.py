@@ -55,6 +55,7 @@ class ConnectionConfig(lib.Enum):
             ["RETAIL", "COMMERCIAL", "COMMERCIAL_BASE", "COMMERCIAL_PLUS", "CONTRACT"],
         ),
     )
+    manifest_required = lib.OptionEnum("manifest_required", bool)
 
 
 def normalize_multipart_response(response: str) -> str:
@@ -79,7 +80,7 @@ def normalize_multipart_response(response: str) -> str:
         part = part.strip().replace("\r\n", "\n").replace("\n\n\n", "\n\n")
 
         # Extract headers and content
-        if "Content-Type" in part:
+        if "content-type" in part.lower():
             # Split headers and content
             headers = []
             content = ""
@@ -90,7 +91,7 @@ def normalize_multipart_response(response: str) -> str:
 
             for line in lines:
                 if in_headers:
-                    if line.startswith("Content-"):
+                    if line.lower().startswith("content-"):
                         headers.append(line)
                     elif not line.strip():
                         in_headers = False
@@ -117,7 +118,7 @@ def parse_response(response) -> dict:
     normalized_response = normalize_multipart_response(response)
 
     # Extract boundary dynamically
-    boundary_match = re.search(r"--[a-zA-Z0-9\-]+", normalized_response)
+    boundary_match = re.search(r"--[a-zA-Z0-9\+/=_-]+", normalized_response)
     if not boundary_match:
         return dict(
             error=dict(
@@ -142,16 +143,17 @@ def parse_response(response) -> dict:
 
         # Extract Content-Disposition and Content-Type
         for header in headers:
-            if "Content-Type" in header:
-                part_data["content_type"] = header.split(":")[1].strip()
-            elif "Content-Disposition" in header:
-                disposition = header.split(":")[1].strip()
+            header_lower = header.lower()
+            if "content-type" in header_lower:
+                part_data["content_type"] = header.split(":", 1)[1].strip()
+            elif "content-disposition" in header_lower:
+                disposition = header.split(":", 1)[1].strip()
                 if "filename=" in disposition:
                     filename = re.search(r'filename="([^"]+)"', disposition)
                     if filename:
                         part_data["filename"] = filename.group(1)
                 if "name=" in disposition:
-                    name = re.search(r' name="([^"]+)"', disposition)
+                    name = re.search(r'(?:^|[\s;])name="([^"]+)"', disposition)
                     if name:
                         part_data["name"] = name.group(1)
 
@@ -172,10 +174,22 @@ def parse_error_response(response) -> dict:
     if json_data:
         return json_data
 
-    # the response is plain text
+    # the response is plain text; decode the bytes we already read instead of
+    # calling .strip()/.code on the raw http error object (which has neither).
+    text = (
+        content.decode("utf-8", errors="replace")
+        if isinstance(content, (bytes, bytearray))
+        else (content or "")
+    )
+    code = (
+        getattr(response, "code", None)
+        or getattr(response, "status", None)
+        or "SHIPPING_SDK_ERROR"
+    )
+
     return dict(
         error=dict(
-            code=response.code,
-            message=response.strip(),
+            code=code,
+            message=text.strip(),
         )
     )

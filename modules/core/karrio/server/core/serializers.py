@@ -1975,6 +1975,10 @@ class ManifestData(ManifestRequestData):
         required=True,
         help_text="""The list of existing shipment object ids with label purchased.""",
     )
+    carrier_id = serializers.CharField(
+        required=False,
+        help_text="The manifest carrier_id for specific connection selection.",
+    )
 
 
 class ManifestDocument(serializers.Serializer):

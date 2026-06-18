@@ -14,6 +14,7 @@ from karrio.core.models import (
     Images,
     InsuranceDetails,
     ManifestDocument,
+    ManifestRequest,
     Message,
     OAuthAuthorizePayload,
     OAuthAuthorizeRequest,

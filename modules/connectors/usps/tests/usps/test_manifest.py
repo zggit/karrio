@@ -1,4 +1,7 @@
+import base64
+import datetime
 import logging as logger
+import os
 import unittest
 from unittest.mock import ANY, patch
 
@@ -7,6 +10,11 @@ import karrio.lib as lib
 import karrio.sdk as karrio
 
 from .fixture import gateway
+
+# Manifest mailingDate must be within USPS's today..+7 window (A4). Use a
+# deterministic in-window date (today + 2) computed at import so the fixture
+# never rots into the past and never trips the window validation.
+MAILING_DATE = (datetime.date.today() + datetime.timedelta(days=2)).strftime("%Y-%m-%d")
 
 
 class TestUSPSManifest(unittest.TestCase):
@@ -50,6 +58,102 @@ class TestUSPSManifest(unittest.TestCase):
             logger.debug(lib.to_dict(parsed_response))
             self.assertListEqual(lib.to_dict(parsed_response), ParsedManifestErrorResponse)
 
+    def test_parse_manifest_multipart_response_with_special_boundary(self):
+        with patch("karrio.mappers.usps.proxy.lib.request") as mock:
+            mock.return_value = SpecialBoundaryMultipartResponse
+            parsed_response = karrio.Manifest.create(self.ManifestRequest).from_(gateway).parse()
+            logger.debug(lib.to_dict(parsed_response))
+            self.assertListEqual(lib.to_dict(parsed_response), ParsedSpecialBoundaryMultipartResponse)
+
+    def test_parse_manifest_unparseable_multipart(self):
+        with patch("karrio.mappers.usps.proxy.lib.request") as mock:
+            mock.return_value = UnparseableMultipartResponse
+            parsed_response = karrio.Manifest.create(self.ManifestRequest).from_(gateway).parse()
+            logger.debug(lib.to_dict(parsed_response))
+            self.assertListEqual(lib.to_dict(parsed_response), ParsedUnparseableMultipartResponse)
+
+    def test_parse_manifest_empty_document_response(self):
+        with patch("karrio.mappers.usps.proxy.lib.request") as mock:
+            mock.return_value = EmptyDocMultipartResponse
+            details, messages = karrio.Manifest.create(self.ManifestRequest).from_(gateway).parse()
+            logger.debug(lib.to_dict([details, messages]))
+            self.assertIsNone(details)
+            self.assertEqual(messages[0].code, "manifest_parse_error")
+
+    def test_parse_manifest_non_pdf_document_response(self):
+        with patch("karrio.mappers.usps.proxy.lib.request") as mock:
+            mock.return_value = NonPdfDocMultipartResponse
+            details, messages = karrio.Manifest.create(self.ManifestRequest).from_(gateway).parse()
+            logger.debug(lib.to_dict([details, messages]))
+            self.assertIsNone(details)
+            self.assertEqual(messages[0].code, "manifest_parse_error")
+
+    def test_create_manifest_request_rejects_out_of_window_date(self):
+        past = (datetime.date.today() - datetime.timedelta(days=1)).strftime("%Y-%m-%d")
+        too_far = (datetime.date.today() + datetime.timedelta(days=10)).strftime("%Y-%m-%d")
+
+        for bad_date in (past, too_far):
+            payload = models.ManifestRequest(
+                **{**ManifestPayload, "options": {"shipment_date": bad_date}}
+            )
+            with self.assertRaises(ValueError):
+                gateway.mapper.create_manifest_request(payload)
+
+    def test_create_manifest_request_accepts_in_window_date(self):
+        today = datetime.date.today().strftime("%Y-%m-%d")
+        plus7 = (datetime.date.today() + datetime.timedelta(days=7)).strftime("%Y-%m-%d")
+
+        for ok_date in (today, plus7):
+            payload = models.ManifestRequest(
+                **{**ManifestPayload, "options": {"shipment_date": ok_date}}
+            )
+            request = gateway.mapper.create_manifest_request(payload)
+            self.assertEqual(request.serialize()["mailingDate"], ok_date)
+
+    def test_parse_error_response_non_json_plain_text(self):
+        import karrio.providers.usps.utils as provider_utils
+
+        class _FakeHttpError:
+            code = 500
+
+            def __init__(self, body):
+                self._body = body
+
+            def read(self):
+                return self._body
+
+        result = provider_utils.parse_error_response(
+            _FakeHttpError(b"  Internal Server Error  ")
+        )
+        self.assertEqual(result["error"]["code"], 500)
+        self.assertEqual(result["error"]["message"], "Internal Server Error")
+
+    def test_parse_manifest_multipart_lowercase_headers(self):
+        with patch("karrio.mappers.usps.proxy.lib.request") as mock:
+            mock.return_value = LowercaseHeaderMultipartResponse
+            parsed_response = karrio.Manifest.create(self.ManifestRequest).from_(gateway).parse()
+            logger.debug(lib.to_dict(parsed_response))
+            self.assertListEqual(lib.to_dict(parsed_response), ParsedLowercaseHeaderMultipartResponse)
+
+    def test_parse_real_scan_form_multipart(self):
+        # Verify-then-code lock: parse the real captured scan-forms/v3 multipart
+        # (real boundary ending in "+", a SCANFormMetaData JSON part, and a
+        # SCANFormImage application/pdf part with PDF magic). Guards against A1
+        # (boundary regex) / A3 (PDF sniff) regressions against the production bytes.
+        fixture_path = os.path.join(os.path.dirname(__file__), "real_scanform.txt")
+        with open(fixture_path, "r") as f:
+            real_response = f.read()
+
+        with patch("karrio.mappers.usps.proxy.lib.request") as mock:
+            mock.return_value = real_response
+            details, messages = karrio.Manifest.create(self.ManifestRequest).from_(gateway).parse()
+
+        self.assertListEqual(lib.to_dict(messages), [])
+        self.assertIsNotNone(details)
+        self.assertEqual(details.meta["manifestNumber"], "92750902795406000000207217")
+        # doc is base64 of a real PDF (decodes to %PDF-).
+        self.assertEqual(base64.b64decode(details.doc.manifest)[:5], b"%PDF-")
+
 
 if __name__ == "__main__":
     unittest.main()
@@ -67,7 +171,7 @@ ManifestPayload = {
         "phone_number": "8005554526",
         "state_code": "SC",
     },
-    "options": {"shipment_date": "2024-07-28"},
+    "options": {"shipment_date": MAILING_DATE},
 }
 
 ParsedManifestResponse = [
@@ -97,7 +201,7 @@ ManifestRequest = {
     },
     "imageType": "PDF",
     "labelType": "8.5x11LABEL",
-    "mailingDate": "2024-07-28",
+    "mailingDate": MAILING_DATE,
     "overwriteMailingDate": False,
     "shipment": {"trackingNumbers": ["794947717776"]},
 }
@@ -182,4 +286,117 @@ ParsedManifestErrorResponse = [
             "details": {"source": {"parameter": "mailingDate"}},
         }
     ],
+]
+
+
+# Boundary containing +/=_ (real USPS scan-forms/v3 boundaries do, e.g. "...NtyzN+").
+# The old parse_response regex --[a-zA-Z0-9\-]+ truncated it at the first + and mis-split.
+SpecialBoundaryMultipartResponse = (
+    "--okuYKZJGhVgsoUrYz1NtyzN+\r\n"
+    "Content-Type: application/json\r\n"
+    'Content-Disposition: form-data; name="SCANFormMetaData"\r\n'
+    "\r\n"
+    '{"manifestNumber": "9234567890", "trackingNumbers": ["794947717776"]}\r\n'
+    "--okuYKZJGhVgsoUrYz1NtyzN+\r\n"
+    "Content-Type: application/pdf\r\n"
+    'Content-Disposition: form-data; filename="SCANFormImage.pdf"; name="SCANFormImage"\r\n'
+    "\r\n"
+    "JVBERi0xLjQgU0NBTiBGb3Jt\r\n"
+    "--okuYKZJGhVgsoUrYz1NtyzN+--\r\n"
+)
+
+ParsedSpecialBoundaryMultipartResponse = [
+    {
+        "carrier_id": "usps",
+        "carrier_name": "usps",
+        "doc": {"manifest": "JVBERi0xLjQgU0NBTiBGb3Jt"},
+        "meta": {"manifestNumber": "9234567890", "trackingNumbers": ["794947717776"]},
+    },
+    [],
+]
+
+
+# A 2xx multipart that parses (it has a SCANFormMetaData JSON part) but yields no
+# SCANFormImage/label doc part and no carrier error. Today this returns (None, [])
+# — a silent non-success. A2 must turn it into (None, [manifest_parse_error]) so the
+# operator is informed and the server blocks creating a NULL-document manifest row.
+UnparseableMultipartResponse = (
+    "--uspsboundary123\r\n"
+    "Content-Type: application/json\r\n"
+    'Content-Disposition: form-data; name="SCANFormMetaData"\r\n'
+    "\r\n"
+    '{"manifestNumber": "9234567890", "trackingNumbers": ["794947717776"]}\r\n'
+    "--uspsboundary123--\r\n"
+)
+
+ParsedUnparseableMultipartResponse = [
+    None,
+    [
+        {
+            "carrier_id": "usps",
+            "carrier_name": "usps",
+            "code": "manifest_parse_error",
+            "message": "Unable to parse USPS scan-form manifest response.",
+        }
+    ],
+]
+
+
+# SCANFormImage part present but empty -> not a valid doc.
+EmptyDocMultipartResponse = (
+    "--uspsboundary123\r\n"
+    "Content-Type: application/json\r\n"
+    'Content-Disposition: form-data; name="SCANFormMetaData"\r\n'
+    "\r\n"
+    '{"manifestNumber": "9234567890", "trackingNumbers": ["794947717776"]}\r\n'
+    "--uspsboundary123\r\n"
+    "Content-Type: application/pdf\r\n"
+    'Content-Disposition: form-data; filename="SCANFormImage.pdf"; name="SCANFormImage"\r\n'
+    "\r\n"
+    "\r\n"
+    "--uspsboundary123--\r\n"
+)
+
+# SCANFormImage part present but content is not base64-of-%PDF -> not a valid doc.
+NonPdfDocMultipartResponse = (
+    "--uspsboundary123\r\n"
+    "Content-Type: application/json\r\n"
+    'Content-Disposition: form-data; name="SCANFormMetaData"\r\n'
+    "\r\n"
+    '{"manifestNumber": "9234567890", "trackingNumbers": ["794947717776"]}\r\n'
+    "--uspsboundary123\r\n"
+    "Content-Type: application/pdf\r\n"
+    'Content-Disposition: form-data; filename="SCANFormImage.pdf"; name="SCANFormImage"\r\n'
+    "\r\n"
+    "bm90LWEtcGRm\r\n"  # base64("not-a-pdf")
+    "--uspsboundary123--\r\n"
+)
+
+
+# Lowercase headers (content-type/content-disposition) and ;name= with no leading
+# space. Real servers send these; the parser must match case-insensitively and
+# tolerate the missing leading space before name=. Behavior-preserving for current
+# fixtures.
+LowercaseHeaderMultipartResponse = (
+    "--uspsboundary123\r\n"
+    "content-type: application/json\r\n"
+    'content-disposition: form-data;name="SCANFormMetaData"\r\n'
+    "\r\n"
+    '{"manifestNumber": "9234567890", "trackingNumbers": ["794947717776"]}\r\n'
+    "--uspsboundary123\r\n"
+    "content-type: application/pdf\r\n"
+    'content-disposition: form-data;filename="SCANFormImage.pdf";name="SCANFormImage"\r\n'
+    "\r\n"
+    "JVBERi0xLjQgU0NBTiBGb3Jt\r\n"
+    "--uspsboundary123--\r\n"
+)
+
+ParsedLowercaseHeaderMultipartResponse = [
+    {
+        "carrier_id": "usps",
+        "carrier_name": "usps",
+        "doc": {"manifest": "JVBERi0xLjQgU0NBTiBGb3Jt"},
+        "meta": {"manifestNumber": "9234567890", "trackingNumbers": ["794947717776"]},
+    },
+    [],
 ]

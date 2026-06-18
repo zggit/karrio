@@ -3397,6 +3397,10 @@ export interface ManifestData {
      */
     'carrier_name': string;
     /**
+     * The manifest carrier_id for specific connection selection.
+     */
+    'carrier_id'?: string;
+    /**
      * The address of the warehouse or location where the shipments originate.
      */
     'address': AddressData;

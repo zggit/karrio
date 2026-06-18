@@ -8343,6 +8343,9 @@ components:
         carrier_name:
           type: string
           description: The manifest's carrier
+        carrier_id:
+          type: string
+          description: The manifest carrier_id for specific connection selection.
         address:
           allOf:
           - $ref: '#/components/schemas/AddressData'
