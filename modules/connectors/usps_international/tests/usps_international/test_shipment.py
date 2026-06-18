@@ -2,6 +2,7 @@ import logging as logger
 import unittest
 from unittest.mock import ANY, patch
 
+import karrio.core.errors as errors
 import karrio.core.models as models
 import karrio.lib as lib
 import karrio.sdk as karrio
@@ -18,6 +19,15 @@ class TestUSPSShipping(unittest.TestCase):
     def test_create_shipment_request(self):
         request = gateway.mapper.create_shipment_request(self.ShipmentRequest)
         self.assertEqual(request.serialize(), ShipmentRequest)
+
+    def test_zero_weight_shipment_rejected(self):
+        payload = {
+            **ShipmentPayload,
+            "parcels": [{**ShipmentPayload["parcels"][0], "weight": 0}],
+        }
+        with self.assertRaises(errors.FieldError) as ctx:
+            gateway.mapper.create_shipment_request(models.ShipmentRequest(**payload))
+        self.assertIn("parcels", ctx.exception.details)
 
     def test_create_cancel_shipment_request(self):
         request = gateway.mapper.create_cancel_shipment_request(self.ShipmentCancelRequest)

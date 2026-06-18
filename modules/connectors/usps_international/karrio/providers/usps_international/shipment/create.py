@@ -116,6 +116,17 @@ def shipment_request(
         package_option_type=provider_units.ShippingOption,
         shipping_options_initializer=provider_units.shipping_options_initializer,
     )
+
+    if (packages.weight.value or 0) <= 0:
+        raise errors.FieldError(
+            {
+                "parcels": dict(
+                    code="invalid",
+                    message="The total parcel weight must be greater than 0 to purchase a USPS label.",
+                )
+            }
+        )
+
     customs = lib.to_customs_info(
         payload.customs,
         shipper=payload.shipper,

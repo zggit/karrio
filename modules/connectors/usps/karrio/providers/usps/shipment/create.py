@@ -148,6 +148,17 @@ def shipment_request(
         package_option_type=provider_units.ShippingOption,
         shipping_options_initializer=provider_units.shipping_options_initializer,
     )
+
+    if (packages.weight.value or 0) <= 0:
+        raise errors.FieldError(
+            {
+                "parcels": dict(
+                    code="invalid",
+                    message="The total parcel weight must be greater than 0 to purchase a USPS label.",
+                )
+            }
+        )
+
     pickup_location = lib.to_address(options.hold_for_pickup_address.state)
     label_type = provider_units.LabelType.map(payload.label_type).value or "PDF"
 
