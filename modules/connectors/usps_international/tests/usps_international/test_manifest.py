@@ -1,3 +1,4 @@
+import datetime
 import logging as logger
 import unittest
 from unittest.mock import ANY, patch
@@ -7,6 +8,11 @@ import karrio.lib as lib
 import karrio.sdk as karrio
 
 from .fixture import gateway
+
+# Manifest mailingDate must be within USPS's today..+7 window (A4). Use a
+# deterministic in-window date (today + 2) computed at import so the fixture
+# never rots into the past and never trips the window validation.
+MAILING_DATE = (datetime.date.today() + datetime.timedelta(days=2)).strftime("%Y-%m-%d")
 
 
 class TestUSPSManifest(unittest.TestCase):
@@ -50,6 +56,20 @@ class TestUSPSManifest(unittest.TestCase):
             logger.debug(lib.to_dict(parsed_response))
             self.assertListEqual(lib.to_dict(parsed_response), ParsedManifestErrorResponse)
 
+    def test_parse_manifest_multipart_response_with_special_boundary(self):
+        with patch("karrio.mappers.usps_international.proxy.lib.request") as mock:
+            mock.return_value = SpecialBoundaryMultipartResponse
+            parsed_response = karrio.Manifest.create(self.ManifestRequest).from_(gateway).parse()
+            logger.debug(lib.to_dict(parsed_response))
+            self.assertListEqual(lib.to_dict(parsed_response), ParsedSpecialBoundaryMultipartResponse)
+
+    def test_parse_manifest_unparseable_multipart(self):
+        with patch("karrio.mappers.usps_international.proxy.lib.request") as mock:
+            mock.return_value = UnparseableMultipartResponse
+            parsed_response = karrio.Manifest.create(self.ManifestRequest).from_(gateway).parse()
+            logger.debug(lib.to_dict(parsed_response))
+            self.assertListEqual(lib.to_dict(parsed_response), ParsedUnparseableMultipartResponse)
+
 
 if __name__ == "__main__":
     unittest.main()
@@ -67,7 +87,7 @@ ManifestPayload = {
         "phone_number": "8005554526",
         "state_code": "SC",
     },
-    "options": {"shipment_date": "2024-07-28"},
+    "options": {"shipment_date": MAILING_DATE},
 }
 
 ParsedManifestResponse = [
@@ -97,7 +117,7 @@ ManifestRequest = {
     },
     "imageType": "PDF",
     "labelType": "8.5x11LABEL",
-    "mailingDate": "2024-07-28",
+    "mailingDate": MAILING_DATE,
     "overwriteMailingDate": False,
     "shipment": {"trackingNumbers": ["794947717776"]},
 }
@@ -180,6 +200,59 @@ ParsedManifestErrorResponse = [
             "code": "160001",
             "message": "cannot be in the past or more than 7 days in the future",
             "details": {"source": {"parameter": "mailingDate"}},
+        }
+    ],
+]
+
+
+# Boundary containing +/=_ (real USPS scan-forms/v3 boundaries do, e.g. "...NtyzN+").
+# The old parse_response regex --[a-zA-Z0-9\-]+ truncated it at the first + and mis-split.
+SpecialBoundaryMultipartResponse = (
+    "--okuYKZJGhVgsoUrYz1NtyzN+\r\n"
+    "Content-Type: application/json\r\n"
+    'Content-Disposition: form-data; name="SCANFormMetaData"\r\n'
+    "\r\n"
+    '{"manifestNumber": "9234567890", "trackingNumbers": ["794947717776"]}\r\n'
+    "--okuYKZJGhVgsoUrYz1NtyzN+\r\n"
+    "Content-Type: application/pdf\r\n"
+    'Content-Disposition: form-data; filename="SCANFormImage.pdf"; name="SCANFormImage"\r\n'
+    "\r\n"
+    "JVBERi0xLjQgU0NBTiBGb3Jt\r\n"
+    "--okuYKZJGhVgsoUrYz1NtyzN+--\r\n"
+)
+
+ParsedSpecialBoundaryMultipartResponse = [
+    {
+        "carrier_id": "usps_international",
+        "carrier_name": "usps_international",
+        "doc": {"manifest": "JVBERi0xLjQgU0NBTiBGb3Jt"},
+        "meta": {"manifestNumber": "9234567890", "trackingNumbers": ["794947717776"]},
+    },
+    [],
+]
+
+
+# A 2xx multipart that parses (it has a SCANFormMetaData JSON part) but yields no
+# SCANFormImage/label doc part and no carrier error. Today this returns (None, [])
+# — a silent non-success. A2 must turn it into (None, [manifest_parse_error]) so the
+# operator is informed and the server blocks creating a NULL-document manifest row.
+UnparseableMultipartResponse = (
+    "--uspsboundary123\r\n"
+    "Content-Type: application/json\r\n"
+    'Content-Disposition: form-data; name="SCANFormMetaData"\r\n'
+    "\r\n"
+    '{"manifestNumber": "9234567890", "trackingNumbers": ["794947717776"]}\r\n'
+    "--uspsboundary123--\r\n"
+)
+
+ParsedUnparseableMultipartResponse = [
+    None,
+    [
+        {
+            "carrier_id": "usps_international",
+            "carrier_name": "usps_international",
+            "code": "manifest_parse_error",
+            "message": "Unable to parse USPS scan-form manifest response.",
         }
     ],
 ]
