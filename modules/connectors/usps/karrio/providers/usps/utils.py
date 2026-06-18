@@ -49,6 +49,7 @@ class ConnectionConfig(lib.Enum):
     price_type = lib.OptionEnum("price_type")
     shipping_options = lib.OptionEnum("shipping_options", list)
     shipping_services = lib.OptionEnum("shipping_services", list)
+    manifest_required = lib.OptionEnum("manifest_required", bool)
 
 
 def normalize_multipart_response(response: str) -> str:

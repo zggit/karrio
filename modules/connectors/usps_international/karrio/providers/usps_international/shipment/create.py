@@ -83,6 +83,11 @@ def _extract_details(
         meta=dict(
             SKU=details.labelMetadata.SKU,
             postage=details.labelMetadata.postage,
+            **(
+                dict(manifest_required=True)
+                if settings.connection_config.manifest_required.state
+                else {}
+            ),
         ),
     )
 

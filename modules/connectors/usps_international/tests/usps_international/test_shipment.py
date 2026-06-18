@@ -6,7 +6,7 @@ import karrio.core.models as models
 import karrio.lib as lib
 import karrio.sdk as karrio
 
-from .fixture import gateway
+from .fixture import gateway, cached_auth
 
 
 class TestUSPSShipping(unittest.TestCase):
@@ -56,6 +56,29 @@ class TestUSPSShipping(unittest.TestCase):
             parsed_response = karrio.Shipment.cancel(self.ShipmentCancelRequest).from_(gateway).parse()
             logger.debug(lib.to_dict(parsed_response))
             self.assertListEqual(lib.to_dict(parsed_response), ParsedCancelShipmentResponse)
+
+    def test_parse_shipment_response_manifest_not_required_by_default(self):
+        with patch("karrio.mappers.usps_international.proxy.lib.request") as mock:
+            mock.return_value = ShipmentResponse
+            parsed_response = karrio.Shipment.create(self.ShipmentRequest).from_(gateway).parse()
+            shipment = lib.to_dict(parsed_response)[0]
+            self.assertNotIn("manifest_required", shipment["meta"])
+
+    def test_parse_shipment_response_manifest_required_when_configured(self):
+        manifest_gateway = karrio.gateway["usps_international"].create(
+            dict(
+                client_id="client_id",
+                client_secret="client_secret",
+                account_number="Your Account Number",
+                config=dict(manifest_required=True),
+            ),
+            cache=lib.Cache(**cached_auth),
+        )
+        with patch("karrio.mappers.usps_international.proxy.lib.request") as mock:
+            mock.return_value = ShipmentResponse
+            parsed_response = karrio.Shipment.create(self.ShipmentRequest).from_(manifest_gateway).parse()
+            shipment = lib.to_dict(parsed_response)[0]
+            self.assertTrue(shipment["meta"]["manifest_required"])
 
 
 if __name__ == "__main__":

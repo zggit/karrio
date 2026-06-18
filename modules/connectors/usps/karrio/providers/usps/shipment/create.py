@@ -114,6 +114,11 @@ def _extract_details(
             postage=details.labelMetadata.postage,
             routingInformation=details.labelMetadata.routingInformation,
             labelBrokerID=details.labelMetadata.labelBrokerID,
+            **(
+                dict(manifest_required=True)
+                if settings.connection_config.manifest_required.state
+                else {}
+            ),
         ),
     )
 

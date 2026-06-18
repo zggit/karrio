@@ -55,6 +55,7 @@ class ConnectionConfig(lib.Enum):
             ["RETAIL", "COMMERCIAL", "COMMERCIAL_BASE", "COMMERCIAL_PLUS", "CONTRACT"],
         ),
     )
+    manifest_required = lib.OptionEnum("manifest_required", bool)
 
 
 def normalize_multipart_response(response: str) -> str:
