@@ -62,6 +62,7 @@ Skills in `.claude/skills/` provide step-by-step guides:
 - `project-setup/` — Environment setup, running servers, schema generation
 - `create-prd/` — Write PRDs with ASCII diagrams before non-trivial features
 - `review-implementation/` — Fresh-context review checklist for quality gates
+- `karrio-gotchas/` — Hard-won fork dev/deploy gotchas (GraphQL resolvers, bind-mount deploy onto the pinned image, dashboard image build, prod debugging). Read when touching the manifest feature, GraphQL types, the prod patch deploy, or debugging prod.
 
 ## Full Reference
 
