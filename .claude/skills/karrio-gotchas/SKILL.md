@@ -43,6 +43,7 @@ fork. When you touch the matching area, follow the ✅ pattern. Severity:
 | 15 | Use a temp live API Token (create→test→delete) to replay dashboard GraphQL; admin has no token by default (JWT) | reproducing what the dashboard fetches | 🟠 |
 | 16 | `bulk_update` (not per-row `.save()`) for backfills — avoids firing N webhook/signal events | mass-updating shipments/orders | 🟠 |
 | 17 | Playwright: the dashboard email field is `type="text"` name="email" (NOT `type=email`) | automating dashboard login | 🟡 |
+| 18 | NEVER bulk-delete a user's API tokens — you can nuke a live SERVICE token | creating temp Karrio tokens for debugging | 🔴 |
 
 ---
 
@@ -151,6 +152,12 @@ Also filter exec output with `grep -vE "INFO|Redis|signal|Loguru|gateway|referen
 **Symptom:** automated login silently fails — fills nothing, stays on `/signin`.
 **Cause:** the email input is `<input type="text" name="email" id="email">` (NOT `type=email`); the password is `type=password`; the only button is "Sign in".
 **✅ Fix:** select by `input[name=email]` / `input[type=password]`. Run **headed** (the no-headless preference still stands) and reuse `storageState` to avoid re-login. Pass creds via a gitignored temp file, never on the command line.
+
+### 18. NEVER bulk-delete a user's API tokens — you can nuke a live service token 🔴
+**Symptom:** a backend service (e.g. the ebay_integration Tongtool runner) suddenly gets **HTTP 401 `invalid_token`** ("Given token not valid for any token type") on every Karrio call, out of nowhere.
+**Cause:** during debugging you minted temp Karrio `Token`s for `admin` and cleaned up with `Token.objects.filter(user=admin).delete()`. In a single-user/single-org install the service authenticates **as admin** with a long-lived token — so the bulk delete also nuked the runner's `karrio_api_key` token.
+**✅ Fix:** never bulk-delete a user's tokens. Track the EXACT key you create and delete only that: `Token.objects.filter(key=mykey).delete()`. To recover a nuked service token: mint a fresh live token, update the consumer's stored key (here: `Tongtool Logistics Settings.karrio_api_key` via `bench`), then verify a read-only call returns 200.
+**Why:** 2026-06-18 — my debugging cleanup deleted the runner's token; `run_batch` + `freight_tick` 401'd every minute for ~2h. No labels were missed (the morning batch had finished before the breakage), but tracking-writeback broke until I minted a new token and re-pointed the setting (verified 200).
 
 ---
 
