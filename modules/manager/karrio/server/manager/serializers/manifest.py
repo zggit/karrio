@@ -15,10 +15,15 @@ class ManifestSerializer(core.ManifestData):
         data = validated_data.copy()
         shipment_ids = list(set(data.pop("shipment_ids")))
         carrier_name = data["carrier_name"]
+        # Optional carrier_id targets a specific connection on multi-account
+        # setups; the gateway resolves it by id or carrier_id (id-or-name).
+        # Pop it from data so it is not forwarded into ManifestRequest.map.
+        carrier_id = data.pop("carrier_id", None)
+        carrier_filter = {"carrier_id": carrier_id} if carrier_id else {}
         carrier = gateway.Connections.first(
             context=context,
             carrier_name=carrier_name,
-            **{"raise_not_found": True, **DEFAULT_CARRIER_FILTER},
+            **{"raise_not_found": True, **DEFAULT_CARRIER_FILTER, **carrier_filter},
         )
 
         # Filter shipments by carrier_code in carrier JSON snapshot
@@ -27,17 +32,21 @@ class ManifestSerializer(core.ManifestData):
             manifest__isnull=True,
             carrier__carrier_code=carrier_name,
         )
-        shipment_identifiers = [_.shipment_identifier for _ in shipments]
+        found_ids = {_.id for _ in shipments}
+        missing_ids = [_id for _id in shipment_ids if _id not in found_ids]
 
-        if len(shipment_identifiers) > len(shipment_ids) or len(shipment_identifiers) == 0:
+        if missing_ids:
             raise serializers.ValidationError(
                 {
                     "shipment_ids": (
-                        "One or more shipment ids are invalid or not found. "
-                        "Please make sure that the shipments referenced exist and have been purchased with the same carrier."
+                        "The following shipment ids could not be manifested "
+                        "(not found, already manifested, or purchased with a different carrier): "
+                        f"{', '.join(missing_ids)}."
                     )
                 }
             )
+
+        shipment_identifiers = [_.shipment_identifier for _ in shipments]
 
         response = gateway.Manifests.create(
             payload=core.ManifestRequest.map(

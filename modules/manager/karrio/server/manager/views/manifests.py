@@ -1,7 +1,10 @@
 import base64
+import binascii
 import io
+import typing
 
 import django.core.files.base as base
+import django.http as http
 import django.urls as urls
 import django_downloadview
 import django_filters.rest_framework as django_filters
@@ -22,6 +25,27 @@ from karrio.server.core.utils import validate_resource_token
 
 ENDPOINT_ID = "$$$$&&"  # This endpoint id is used to make operation ids unique make sure not to duplicate
 Manifests = serializers.PaginatedResult("ManifestList", serializers.Manifest)
+
+
+def _decode_pdf(
+    value: typing.Optional[str],
+) -> typing.Tuple[typing.Optional[bytes], typing.Optional[str]]:
+    """Decode a stored base64 manifest document and validate it is a PDF.
+
+    Returns ``(content, error)`` where ``error`` is:
+      - ``"missing"`` when the value is None/empty/whitespace
+      - ``"invalid"`` when base64 is undecodable or the bytes are not a PDF
+      - ``None`` on success (``content`` is the decoded PDF bytes)
+    """
+    if value is None or not str(value).strip():
+        return None, "missing"
+    try:
+        content = base64.b64decode(value)
+    except (binascii.Error, ValueError):
+        return None, "invalid"
+    if content[:5] != b"%PDF-":
+        return None, "invalid"
+    return content, None
 
 
 class ManifestList(api.GenericAPIView):
@@ -108,13 +132,28 @@ class ManifestDoc(AccessMixin, django_downloadview.VirtualDownloadView):
 
         self.manifest = models.Manifest.objects.filter(pk=pk, manifest__isnull=False).first()
 
+        # This is a plain Django VirtualDownloadView (not a DRF APIView), so error
+        # branches must return http.JsonResponse — a DRF Response has no renderer
+        # attached here and would raise ".accepted_renderer not set on Response".
         if self.manifest is None:
-            return response.Response(
+            return http.JsonResponse(
                 {"errors": [{"message": f"Manifest '{pk}' not found or has no document"}]},
                 status=status.HTTP_404_NOT_FOUND,
             )
 
-        self.document = getattr(self.manifest, doc, None)
+        content, decode_error = _decode_pdf(getattr(self.manifest, doc, None))
+        if decode_error == "missing":
+            return http.JsonResponse(
+                {"errors": [{"message": f"Manifest '{pk}' not found or has no document"}]},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+        if decode_error == "invalid":
+            return http.JsonResponse(
+                {"errors": [{"message": f"Manifest '{pk}' document is not a valid PDF"}]},
+                status=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            )
+
+        self._content = content
         self.name = f"{doc}_{self.manifest.id}.{format}"
 
         self.preview = "preview" in query_params
@@ -125,9 +164,8 @@ class ManifestDoc(AccessMixin, django_downloadview.VirtualDownloadView):
         return resp
 
     def get_file(self):
-        content = base64.b64decode(self.document or "")
         buffer = io.BytesIO()
-        buffer.write(content)
+        buffer.write(self._content)
 
         return base.ContentFile(buffer.getvalue(), name=self.name)
 
@@ -155,6 +193,18 @@ class ManifestDocumentDownload(api.APIView):
             return response.Response(
                 {"errors": [{"message": f"Manifest '{pk}' not found or has no document"}]},
                 status=status.HTTP_404_NOT_FOUND,
+            )
+
+        _content, decode_error = _decode_pdf(manifest.manifest)
+        if decode_error == "missing":
+            return response.Response(
+                {"errors": [{"message": f"Manifest '{pk}' not found or has no document"}]},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+        if decode_error == "invalid":
+            return response.Response(
+                {"errors": [{"message": f"Manifest '{pk}' document is not a valid PDF"}]},
+                status=status.HTTP_422_UNPROCESSABLE_ENTITY,
             )
 
         # Build the GET URL for the document
