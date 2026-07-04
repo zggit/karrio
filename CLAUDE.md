@@ -43,6 +43,12 @@ npm run build                                                    # Turbo build a
 - Never add `Co-Authored-By` lines
 - Run tests before pushing
 
+## Verification Rules
+
+- 永远不说某功能/行为"存在",除非本 session 在代码或运行系统里验证过——引用 file:line 或命令输出
+- 永远不说"done/完成/修好了",除非跑过验证命令并展示其输出
+- 没验证就明说"未验证";测试失败就贴失败输出,不粉饰
+
 ## Detailed Rules
 
 Scoped rules are in `.claude/rules/`:
