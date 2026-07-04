@@ -69,6 +69,7 @@ Skills in `.claude/skills/` provide step-by-step guides:
 - `create-prd/` — Write PRDs with ASCII diagrams before non-trivial features
 - `review-implementation/` — Fresh-context review checklist for quality gates
 - `karrio-gotchas/` — Hard-won fork dev/deploy gotchas (GraphQL resolvers, bind-mount deploy onto the pinned image, dashboard image build, prod debugging). Read when touching the manifest feature, GraphQL types, the prod patch deploy, or debugging prod.
+- `prod-ops/` — 生产只读查询手册(karrio DB schema、bench console 铁律、eBay 对账、健康检查)。凡 SSH 生产做查询先读它。
 
 ## Full Reference
 
