@@ -2,7 +2,7 @@ import karrio.server.events.tasks as tasks
 import karrio.server.manager.models as manager
 import karrio.server.orders.models as models
 import karrio.server.orders.serializers as serializers
-from django.db.models import signals
+from django.db.models import Q, signals
 from karrio.server.conf import settings
 from karrio.server.core import utils
 from karrio.server.core.logging import logger
@@ -56,17 +56,16 @@ def _find_related_orders_from_json(shipment_instance):
     if not parent_ids:
         return models.Order.objects.none()
 
-    # Find orders that have line items with matching IDs
-    # We need to query orders where any line_items[].id matches parent_ids
-    related_orders = []
-    for order in models.Order.objects.all():
-        line_items = order.line_items or []
-        for item in line_items:
-            if isinstance(item, dict) and item.get("id") in parent_ids:
-                related_orders.append(order.id)
-                break
+    # Find orders that have line items with matching IDs via DB-side JSONB
+    # containment (Postgres @>). The previous implementation loaded EVERY
+    # order row and parsed its line_items in Python on each shipment save
+    # (2-3 saves per purchase) — O(total orders) per label, ~27s of pure CPU
+    # at a few thousand orders, degrading further as orders accumulate.
+    query = Q()
+    for parent_id in parent_ids:
+        query |= Q(line_items__contains=[{"id": parent_id}])
 
-    return models.Order.objects.filter(id__in=related_orders)
+    return models.Order.objects.filter(query)
 
 
 def _update_order_line_items_fulfillment(order, shipment_instance):
