@@ -68,7 +68,9 @@ def background_trackers_update():
         logger.info("Tracker update already in progress, skipping duplicate run")
 
 
-@background_task(queue="karrio-tracking", retries=2, retry_delay=30)
+# retries=0: polling is idempotent — a failed tracker is naturally retried on
+# the next cycle, while a batch-level retry re-scans already-succeeded numbers.
+@background_task(queue="karrio-tracking", retries=0, retry_delay=30)
 @utils.tenant_aware
 @with_task_telemetry("process_carrier_tracking_batch")
 def process_carrier_tracking_batch(*args, **kwargs):

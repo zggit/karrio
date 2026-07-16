@@ -440,9 +440,12 @@ def apply_tracker_changes(
             tracker.signature_image = signature_image
             changes.append("signature_image")
 
-    if any(changes):
-        tracker.updated_at = timezone.now()
-        changes.append("updated_at")
+    # Cooldown refreshes on every poll attempt, not only when data changed.
+    # Unconditional append keeps `changes` non-empty so unchanged trackers
+    # still reach bulk_save_trackers (caller drops empty changes at
+    # events/task_definitions/base/tracking.py `if changes:`).
+    tracker.updated_at = timezone.now()
+    changes.append("updated_at")
 
     return changes
 
