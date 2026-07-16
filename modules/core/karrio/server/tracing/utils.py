@@ -79,10 +79,27 @@ def bulk_save_tracing_records(tracer: lib.Tracer, context=None):
     if len(tracer.records) == 0 or context is None:
         return
 
+    # Dedupe records already persisted by an earlier call with the same tracer.
+    # The tracker-update task calls this once per batch while the carrier-task
+    # gateway (and its tracer) is shared across all batches and never cleared,
+    # so batch k re-persisted batches 1..k-1 — quadratic row amplification
+    # (measured ~29x: 32.5k tracing rows per cycle vs 1.2k real HTTP calls
+    # squid-side, 2026-07-16). Record objects are stable across `.records`
+    # accesses (future results are cached), so identity is a safe dedupe key;
+    # the set lives on the tracer and dies with the task.
+    persisted_ids = getattr(tracer, "_persisted_record_ids", None)
+    if persisted_ids is None:
+        persisted_ids = set()
+        tracer._persisted_record_ids = persisted_ids
+
     records = []
+    new_records = []
 
     for record in tracer.records:
+        if id(record) in persisted_ids:
+            continue
         logger.debug("Processing tracing record", record_key=record.key, metadata=record.metadata)
+        new_records.append(record)
         records.append(
             models.TracingRecord(
                 key=record.key,
@@ -94,7 +111,11 @@ def bulk_save_tracing_records(tracer: lib.Tracer, context=None):
             )
         )
 
+    if len(records) == 0:
+        return
+
     saved_records = models.TracingRecord.objects.bulk_create(records)
+    persisted_ids.update(id(record) for record in new_records)
 
     if getattr(context, "org", None) is not None:
         serializers.bulk_link_org(saved_records, context)
